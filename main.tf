@@ -1,7 +1,5 @@
 provider "null" {}
 
-provider "tls" {}
-
 variable "ip" {
   description = "IP адрес удалённого сервера"
 }
@@ -11,7 +9,11 @@ variable "user" {
 }
 
 variable "password" {
-  description = "Пароль для подключения"
+  description = "Пароль"
+}
+
+variable "public_key" {
+  description = "Публичный SSH-ключ для нового пользователя"
 }
 
 variable "username" {
@@ -23,10 +25,10 @@ resource "null_resource" "setup_server" {
   provisioner "remote-exec" {
     inline = [
       # Обновление системы
-      "apt-get update && apt-get upgrade -y",
+      "DEBIAN_FRONTEND=noninteractive apt-get update && apt-get upgrade -y",
 
       # Установка необходимых пакетов
-      "apt-get install -y htop mc curl fail2ban",
+      "DEBIAN_FRONTEND=noninteractive apt-get install -y htop mc curl fail2ban sudo",
 
       # Создание пользователя с именем из переменной
       "adduser --disabled-password --gecos '' ${var.username}",
@@ -36,7 +38,7 @@ resource "null_resource" "setup_server" {
 
       # Добавление публичного SSH-ключа для нового пользователя
       "mkdir -p /home/${var.username}/.ssh && chmod 700 /home/${var.username}/.ssh",
-      "echo '${file("~/.ssh/id_rsa.pub")}' > /home/${var.username}/.ssh/authorized_keys",
+      "echo '${var.public_key}' > /home/${var.username}/.ssh/authorized_keys",
       "chmod 600 /home/${var.username}/.ssh/authorized_keys && chown -R ${var.username}:${var.username} /home/${var.username}/.ssh",
 
       # Запрет подключения по root
@@ -50,7 +52,9 @@ resource "null_resource" "setup_server" {
       "sh get-docker.sh",
 
       # Добавление пользователя в группу docker
-      "usermod -aG docker ${var.username}",
+      "/usr/sbin/usermod -aG docker ${var.username}",
+
+      "/usr/sbin/usermod -aG sudo ${var.username}",
 
       # Генерация SSH-ключа для нового пользователя
       "ssh-keygen -t rsa -b 4096 -f /home/${var.username}/.ssh/id_rsa -q -N ''",
@@ -63,6 +67,6 @@ resource "null_resource" "setup_server" {
     type     = "ssh"
     host     = var.ip
     user     = var.user
-    password = var.password
+    private_key = file("~/.ssh/id_rsa")
   }
 }
