@@ -28,7 +28,7 @@ resource "null_resource" "setup_server" {
       "DEBIAN_FRONTEND=noninteractive apt-get update && apt-get upgrade -y",
 
       # Установка необходимых пакетов
-      "DEBIAN_FRONTEND=noninteractive apt-get install -y htop mc curl fail2ban sudo",
+      "DEBIAN_FRONTEND=noninteractive apt-get install -y htop mc curl fail2ban sudo screen",
 
       # Создание пользователя с именем из переменной
       "adduser --disabled-password --gecos '' ${var.username}",
@@ -59,7 +59,10 @@ resource "null_resource" "setup_server" {
       # Генерация SSH-ключа для нового пользователя
       "ssh-keygen -t rsa -b 4096 -f /home/${var.username}/.ssh/id_rsa -q -N ''",
       "chown ${var.username}:${var.username} /home/${var.username}/.ssh/id_rsa*",
-      "cat /home/${var.username}/.ssh/id_rsa.pub"
+      "cat /home/${var.username}/.ssh/id_rsa.pub",
+
+      # Создание алиаса dc="docker compose"
+      "echo 'alias dc=\"docker compose\"' >> /home/${var.username}/.bashrc"
     ]
   }
 
