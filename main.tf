@@ -28,7 +28,7 @@ resource "null_resource" "setup_server" {
       "DEBIAN_FRONTEND=noninteractive apt-get update && apt-get upgrade -y",
 
       # Установка необходимых пакетов
-      "DEBIAN_FRONTEND=noninteractive apt-get install -y htop mc curl fail2ban sudo screen",
+      "DEBIAN_FRONTEND=noninteractive apt-get install -y htop mc curl fail2ban sudo screen git",
 
       # Создание пользователя с именем из переменной
       "adduser --disabled-password --gecos '' ${var.username}",
