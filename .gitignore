@@ -1,1 +1,4 @@
-/*.tfvars
+*.tfvars
+.idea/**
+**.hcl
+**.tfstate**
