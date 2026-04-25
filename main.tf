@@ -1,24 +1,26 @@
 provider "null" {}
 
 variable "ip" {
-  description = "IP адрес удалённого сервера"
+  description = "IP адрес сервера"
 }
 
-variable "user" {
-  description = "Логин для подключения"
+variable "root_password" {
+  description = "Пароль root для первоначального подключения"
+  sensitive   = true
 }
 
-variable "password" {
-  description = "Пароль"
-}
-
-variable "public_key" {
-  description = "Публичный SSH-ключ для нового пользователя"
-}
-
-variable "username" {
+variable "new_username" {
   description = "Имя создаваемого пользователя"
-  default     = "new_user"
+}
+
+variable "new_user_password" {
+  description = "Пароль нового пользователя (нужен для sudo)"
+  sensitive   = true
+}
+
+# Публичный SSH-ключ берётся автоматически с машины, которая запускает apply
+locals {
+  public_key = file("~/.ssh/id_rsa.pub")
 }
 
 resource "null_resource" "setup_server" {
@@ -27,49 +29,48 @@ resource "null_resource" "setup_server" {
       # Обновление системы
       "DEBIAN_FRONTEND=noninteractive apt-get update && apt-get upgrade -y",
 
-      # Установка необходимых пакетов
-      "DEBIAN_FRONTEND=noninteractive apt-get install -y htop mc curl fail2ban sudo screen git",
+      # Базовые пакеты
+      "DEBIAN_FRONTEND=noninteractive apt-get install -y screen git curl wget nano mc 
+fail2ban htop ufw ncdu tmux unzip net-tools",
 
-      # Создание пользователя с именем из переменной
-      "adduser --disabled-password --gecos '' ${var.username}",
+      # Установка Docker (официальный скрипт — последняя версия)
+      "curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh && rm 
+get-docker.sh",
 
-      # Добавление пользователя в группу sudo
-      "usermod -aG sudo ${var.username}",
+      # Создание пользователя с домашней директорией
+      "adduser --disabled-password --gecos '' ${var.new_username}",
 
-      # Добавление публичного SSH-ключа для нового пользователя
-      "mkdir -p /home/${var.username}/.ssh && chmod 700 /home/${var.username}/.ssh",
-      "echo '${var.public_key}' > /home/${var.username}/.ssh/authorized_keys",
-      "chmod 600 /home/${var.username}/.ssh/authorized_keys && chown -R ${var.username}:${var.username} /home/${var.username}/.ssh",
+      # Установка пароля нового пользователя (нужен для sudo)
+      "echo '${var.new_username}:${var.new_user_password}' | chpasswd",
 
-      # Запрет подключения по root
-      "sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config",
+      # Добавление в группы sudo и docker
+      "usermod -aG sudo ${var.new_username}",
+      "usermod -aG docker ${var.new_username}",
 
-      # Перезагрузка SSH службы
-      "systemctl restart sshd",
+      # Копирование SSH-ключа с машины, запускающей apply -> на сервер
+      "mkdir -p /home/${var.new_username}/.ssh && chmod 700 
+/home/${var.new_username}/.ssh",
+      "echo '${local.public_key}' > /home/${var.new_username}/.ssh/authorized_keys",
+      "chmod 600 /home/${var.new_username}/.ssh/authorized_keys",
+      "chown -R ${var.new_username}:${var.new_username} /home/${var.new_username}/.ssh",
 
-      # Установка Docker
-      "curl -fsSL https://get.docker.com -o get-docker.sh",
-      "sh get-docker.sh",
+      # Алиас dc="docker compose"
+      "echo 'alias dc=\"docker compose\"' >> /home/${var.new_username}/.bashrc",
 
-      # Добавление пользователя в группу docker
-      "/usr/sbin/usermod -aG docker ${var.username}",
+      # Запрет root по SSH
+      "sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config",
+      "grep -q '^PermitRootLogin' /etc/ssh/sshd_config || echo 'PermitRootLogin no' >> 
+/etc/ssh/sshd_config",
 
-      "/usr/sbin/usermod -aG sudo ${var.username}",
-
-      # Генерация SSH-ключа для нового пользователя
-      "ssh-keygen -t rsa -b 4096 -f /home/${var.username}/.ssh/id_rsa -q -N ''",
-      "chown ${var.username}:${var.username} /home/${var.username}/.ssh/id_rsa*",
-      "cat /home/${var.username}/.ssh/id_rsa.pub",
-
-      # Создание алиаса dc="docker compose"
-      "echo 'alias dc=\"docker compose\"' >> /home/${var.username}/.bashrc"
+      # Перезапуск SSH
+      "systemctl restart sshd"
     ]
   }
 
   connection {
     type     = "ssh"
     host     = var.ip
-    user     = var.user
-    password = var.password
+    user     = "root"
+    password = var.root_password
   }
 }

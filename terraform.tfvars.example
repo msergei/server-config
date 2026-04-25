@@ -1,4 +1,11 @@
-ip       = "192.168.1.100"
-user     = "root"
-public_key  = "ssh-rsa AAAAB3NzaC1 ..."
-username = "custom_user"
+# IP адрес вашего сервера
+ip = "192.168.1.100"
+
+# Пароль root (для первоначального подключения)
+root_password = "root_password_here"
+
+# Имя создаваемого пользователя
+new_username = "jr"
+
+# Пароль нового пользователя (будет использоваться для sudo на сервере)
+new_user_password = "password_here"
