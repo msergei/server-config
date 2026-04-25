@@ -26,32 +26,19 @@ resource "null_resource" "setup_server" {
   provisioner "remote-exec" {
     inline = [
       "DEBIAN_FRONTEND=noninteractive apt-get update && apt-get upgrade -y",
-
-      "DEBIAN_FRONTEND=noninteractive apt-get install -y screen git curl wget nano mc 
-fail2ban htop ufw ncdu tmux unzip net-tools",
-
-      "curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh && rm 
-get-docker.sh",
-
+      "DEBIAN_FRONTEND=noninteractive apt-get install -y screen git curl wget nano mc fail2ban htop ufw ncdu tmux unzip net-tools",
+      "curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh && rm get-docker.sh",
       "adduser --disabled-password --gecos '' ${var.new_username}",
-
       "echo '${var.new_username}:${var.new_user_password}' | chpasswd",
-
       "usermod -aG sudo ${var.new_username}",
       "usermod -aG docker ${var.new_username}",
-
-      "mkdir -p /home/${var.new_username}/.ssh && chmod 700 
-/home/${var.new_username}/.ssh",
+      "mkdir -p /home/${var.new_username}/.ssh && chmod 700 /home/${var.new_username}/.ssh",
       "echo '${local.public_key}' > /home/${var.new_username}/.ssh/authorized_keys",
       "chmod 600 /home/${var.new_username}/.ssh/authorized_keys",
       "chown -R ${var.new_username}:${var.new_username} /home/${var.new_username}/.ssh",
-
       "echo 'alias dc=\"docker compose\"' >> /home/${var.new_username}/.bashrc",
-
       "sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config",
-      "grep -q '^PermitRootLogin' /etc/ssh/sshd_config || echo 'PermitRootLogin no' >> 
-/etc/ssh/sshd_config",
-
+      "grep -q '^PermitRootLogin' /etc/ssh/sshd_config || echo 'PermitRootLogin no' >> /etc/ssh/sshd_config",
       "systemctl restart sshd"
     ]
   }
