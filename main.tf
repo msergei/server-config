@@ -70,6 +70,6 @@ resource "null_resource" "setup_server" {
     type     = "ssh"
     host     = var.ip
     user     = var.user
-    private_key = file("~/.ssh/id_rsa")
+    password = var.password
   }
 }
