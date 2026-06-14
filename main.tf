@@ -27,6 +27,12 @@ resource "null_resource" "setup_server" {
     inline = [
       "DEBIAN_FRONTEND=noninteractive apt-get update && apt-get upgrade -y",
       "DEBIAN_FRONTEND=noninteractive apt-get install -y screen git curl wget nano mc fail2ban htop ufw ncdu tmux unzip net-tools",
+      "install -d -m 755 /etc/fail2ban/jail.d",
+      "printf '%s\\n' '[DEFAULT]' 'bantime = 1h' 'findtime = 10m' 'maxretry = 5' 'bantime.increment = true' 'bantime.factor = 2' 'bantime.maxtime = 1w' '' '[sshd]' 'enabled = true' 'backend = systemd' 'port = ssh' > /etc/fail2ban/jail.d/sshd.local",
+      "chmod 644 /etc/fail2ban/jail.d/sshd.local",
+      "fail2ban-client -t",
+      "systemctl enable fail2ban",
+      "systemctl restart fail2ban",
       "curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh && rm get-docker.sh",
       "adduser --disabled-password --gecos '' ${var.new_username}",
       "echo '${var.new_username}:${var.new_user_password}' | chpasswd",
