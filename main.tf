@@ -28,6 +28,11 @@ resource "null_resource" "setup_server" {
     destination = "/usr/local/bin/top-dirs"
   }
 
+  provisioner "file" {
+    source      = "${path.module}/scripts/setup-time-sync"
+    destination = "/usr/local/bin/setup-time-sync"
+  }
+
   provisioner "remote-exec" {
     inline = [
       "DEBIAN_FRONTEND=noninteractive apt-get update && apt-get upgrade -y",
@@ -45,6 +50,8 @@ resource "null_resource" "setup_server" {
       "systemctl daemon-reload",
       "systemctl enable --now docker-prune.timer",
       "chmod 755 /usr/local/bin/top-dirs",
+      "chmod 755 /usr/local/bin/setup-time-sync",
+      "/usr/local/bin/setup-time-sync",
       "adduser --disabled-password --gecos '' ${var.new_username}",
       "echo '${var.new_username}:${var.new_user_password}' | chpasswd",
       "usermod -aG sudo ${var.new_username}",
@@ -65,5 +72,31 @@ resource "null_resource" "setup_server" {
     host     = var.ip
     user     = "root"
     password = var.root_password
+  }
+}
+
+resource "null_resource" "time_sync" {
+  triggers = {
+    script_sha256 = filesha256("${path.module}/scripts/setup-time-sync")
+  }
+
+  provisioner "file" {
+    source      = "${path.module}/scripts/setup-time-sync"
+    destination = "/tmp/setup-time-sync"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "echo '${var.new_user_password}' | sudo -S install -m 755 /tmp/setup-time-sync /usr/local/bin/setup-time-sync",
+      "rm -f /tmp/setup-time-sync",
+      "echo '${var.new_user_password}' | sudo -S /usr/local/bin/setup-time-sync"
+    ]
+  }
+
+  connection {
+    type        = "ssh"
+    host        = var.ip
+    user        = var.new_username
+    private_key = file("~/.ssh/id_rsa")
   }
 }
