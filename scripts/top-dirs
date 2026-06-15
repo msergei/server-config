@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+
+set -u
+
+limit=20
+root="/"
+declare -a excludes=()
+
+usage() {
+  cat <<'EOF'
+Usage: top-dirs [-n COUNT] [-x PATH]... [ROOT]
+
+Show the largest directories on the same filesystem as ROOT.
+
+Options:
+  -n, --limit COUNT    Number of directories to show (default: 20)
+  -x, --exclude PATH   Exclude a path; may be specified multiple times
+  -h, --help           Show this help
+
+Example:
+  sudo top-dirs -n 20 -x /home/jr/share /
+EOF
+}
+
+while (($# > 0)); do
+  case "$1" in
+    -n|--limit)
+      [[ $# -ge 2 ]] || { echo "top-dirs: missing value for $1" >&2; exit 2; }
+      limit="$2"
+      shift 2
+      ;;
+    -x|--exclude)
+      [[ $# -ge 2 ]] || { echo "top-dirs: missing value for $1" >&2; exit 2; }
+      excludes+=("$2")
+      shift 2
+      ;;
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "top-dirs: unknown option: $1" >&2
+      usage >&2
+      exit 2
+      ;;
+    *)
+      root="$1"
+      shift
+      break
+      ;;
+  esac
+done
+
+[[ $# -eq 0 ]] || { echo "top-dirs: only one ROOT path is supported" >&2; exit 2; }
+[[ "$limit" =~ ^[1-9][0-9]*$ ]] || { echo "top-dirs: COUNT must be a positive integer" >&2; exit 2; }
+[[ -d "$root" ]] || { echo "top-dirs: directory does not exist: $root" >&2; exit 2; }
+
+if [[ $EUID -ne 0 ]]; then
+  echo "top-dirs: warning: run with sudo to include directories inaccessible to the current user" >&2
+fi
+
+declare -a du_args=(-x -B1)
+for path in "${excludes[@]}"; do
+  du_args+=("--exclude=$path")
+done
+
+du "${du_args[@]}" "$root" 2>/dev/null \
+  | sort -nr \
+  | awk -v root="$root" '$2 != root' \
+  | head -n "$limit" \
+  | numfmt --field=1 --to=iec-i --suffix=B

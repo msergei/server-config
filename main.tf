@@ -23,6 +23,11 @@ locals {
 }
 
 resource "null_resource" "setup_server" {
+  provisioner "file" {
+    source      = "${path.module}/scripts/top-dirs"
+    destination = "/usr/local/bin/top-dirs"
+  }
+
   provisioner "remote-exec" {
     inline = [
       "DEBIAN_FRONTEND=noninteractive apt-get update && apt-get upgrade -y",
@@ -34,11 +39,12 @@ resource "null_resource" "setup_server" {
       "systemctl enable fail2ban",
       "systemctl restart fail2ban",
       "curl -fsSL https://get.docker.com -o get-docker.sh && sh get-docker.sh && rm get-docker.sh",
-      "printf '%s\\n' '[Unit]' 'Description=Remove unused Docker images and build cache older than 7 days' 'Requires=docker.service' 'After=docker.service' '' '[Service]' 'Type=oneshot' 'ExecStart=/usr/bin/docker image prune -a -f --filter until=168h' 'ExecStart=/usr/bin/docker builder prune -a -f --filter until=168h' > /etc/systemd/system/docker-prune.service",
+      "printf '%s\\n' '[Unit]' 'Description=Remove stopped Docker containers, unused images, and old build cache' 'Requires=docker.service' 'After=docker.service' '' '[Service]' 'Type=oneshot' 'ExecStart=/usr/bin/docker container prune -f' 'ExecStart=/usr/bin/docker image prune -a -f' 'ExecStart=/usr/bin/docker builder prune -a -f --filter until=168h' > /etc/systemd/system/docker-prune.service",
       "printf '%s\\n' '[Unit]' 'Description=Weekly Docker cleanup' '' '[Timer]' 'OnCalendar=weekly' 'RandomizedDelaySec=6h' 'Persistent=true' 'Unit=docker-prune.service' '' '[Install]' 'WantedBy=timers.target' > /etc/systemd/system/docker-prune.timer",
       "chmod 644 /etc/systemd/system/docker-prune.service /etc/systemd/system/docker-prune.timer",
       "systemctl daemon-reload",
       "systemctl enable --now docker-prune.timer",
+      "chmod 755 /usr/local/bin/top-dirs",
       "adduser --disabled-password --gecos '' ${var.new_username}",
       "echo '${var.new_username}:${var.new_user_password}' | chpasswd",
       "usermod -aG sudo ${var.new_username}",
