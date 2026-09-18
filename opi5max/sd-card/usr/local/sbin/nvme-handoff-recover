@@ -1,0 +1,75 @@
+#!/bin/sh
+# nvme-handoff-recover - runs on the SD rescue system (Armbian).
+#
+# U-Boot on this card normally boots Ubuntu from NVMe. When it cannot (kernel
+# command line carries nvme_handoff=notready or nvme_handoff=bootfail) we land
+# here. Linux waits for the SSD patiently, so once /dev/nvme0n1p1 is visible the
+# SSD has finished its power-loss recovery. A clean reboot then sends the NVMe
+# shutdown notification, the SSD starts fast next time and U-Boot can boot it.
+# This is the manual procedure "boot from SD, shut down properly", automated.
+#
+# The NVMe is never mounted or written here. dumpe2fs -h only reads the superblock.
+set -u
+# Test hooks: NVME_HANDOFF_CMDLINE=<file> fakes /proc/cmdline, NVME_HANDOFF_TEST=1 skips the
+# grace period and the reboot and keeps its state in a separate directory.
+CMDLINE="${NVME_HANDOFF_CMDLINE:-/proc/cmdline}"
+TEST="${NVME_HANDOFF_TEST:-0}"
+STATE=/var/lib/nvme-handoff
+[ "$TEST" = 1 ] && STATE=/run/nvme-handoff-test
+LOG="$STATE/recover.log"
+MAX_ATTEMPTS=3
+GRACE=30
+PART=/dev/nvme0n1p1
+
+mkdir -p "$STATE"
+log() { echo "$(date '+%F %T') $*" >> "$LOG"; echo "$*"; }
+arg() { tr ' ' '\n' < "$CMDLINE" | sed -n "s/^$1=//p" | tail -n 1; }
+
+status="$(arg nvme_handoff)"
+tries="$(arg nvme_tries)"
+flags="$(arg nvme_flags)"
+
+case "$status" in
+	notready|bootfail) ;;
+	*)
+		log "rescue system up, handoff status='${status:-none}' tries='${tries:-}' flags='${flags:-}': no automatic action"
+		exit 0
+		;;
+esac
+
+log "U-Boot could not boot NVMe (status=$status tries=$tries flags=$flags), waiting for Linux to bring the SSD up"
+i=0
+while [ ! -b "$PART" ] && [ "$i" -lt 180 ]; do sleep 1; i=$((i + 1)); done
+
+if [ -b "$PART" ]; then
+	fp="$(dumpe2fs -h "$PART" 2>/dev/null | grep -E '^(Filesystem UUID|Mount count|Lifetime writes|Journal sequence):' | md5sum | cut -d' ' -f1)"
+	log "SSD visible after ${i}s, filesystem fingerprint $fp"
+else
+	fp="absent"
+	log "SSD did NOT appear within ${i}s"
+fi
+
+# Loop guard. The fingerprint changes as soon as Ubuntu has mounted its root
+# filesystem, so the counter only grows while NVMe boots keep failing.
+prev_fp="$(sed -n 's/^fp=//p' "$STATE/attempts" 2>/dev/null | tail -n 1)"
+attempts="$(sed -n 's/^attempts=//p' "$STATE/attempts" 2>/dev/null | tail -n 1)"
+case "$attempts" in ''|*[!0-9]*) attempts=0 ;; esac
+if [ "$fp" = "$prev_fp" ]; then attempts=$((attempts + 1)); else attempts=1; fi
+printf 'fp=%s\nattempts=%s\n' "$fp" "$attempts" > "$STATE/attempts.tmp" && mv "$STATE/attempts.tmp" "$STATE/attempts"
+sync
+
+if [ "$attempts" -gt "$MAX_ATTEMPTS" ]; then
+	log "$MAX_ATTEMPTS automatic reboots did not help, giving up and staying in the rescue system"
+	exit 0
+fi
+
+log "attempt $attempts of $MAX_ATTEMPTS: clean reboot in ${GRACE}s (cancel with: touch /run/nvme-handoff.stop)"
+if [ "$TEST" = 1 ]; then log "test mode: not rebooting"; exit 0; fi
+sleep "$GRACE"
+if [ -e /run/nvme-handoff.stop ]; then
+	log "cancelled by /run/nvme-handoff.stop"
+	exit 0
+fi
+log "rebooting now"
+sync
+systemctl reboot

@@ -1,0 +1,74 @@
+#!/bin/sh
+# nvme-handoff - manage the boot flags on the HANDOFF (FAT) partition of the SD card.
+# Works on the rescue system and on Ubuntu (needs root).
+set -eu
+DEV=/dev/disk/by-label/HANDOFF
+MNT=/run/nvme-handoff-mnt
+FLAGS="force-sd force-sd.txt try-nvme-once dry-run"
+
+usage() {
+	cat <<USAGE
+usage: nvme-handoff COMMAND
+  status     show flags, the last U-Boot retry record and the recovery log
+  auto       normal mode: always boot Ubuntu from NVMe (removes all flags)
+  force-sd   next boots stay in the SD rescue system
+  once       stay in rescue by default, but boot NVMe exactly once on next boot
+  dry-run    next boots probe NVMe but start the rescue system (for testing)
+USAGE
+	exit 1
+}
+
+[ $# -eq 1 ] || usage
+[ -b "$DEV" ] || { echo "HANDOFF partition not found ($DEV)"; exit 2; }
+
+mnt() {
+	mkdir -p "$MNT"
+	mountpoint -q "$MNT" && return 0
+	# U-Boot does not maintain the FAT free-space hint, let fsck tidy it before a rw mount
+	if [ "$1" = rw ] && command -v fsck.vfat >/dev/null 2>&1; then fsck.vfat -a "$DEV" >/dev/null 2>&1 || true; fi
+	mount -t vfat -o "$1" "$DEV" "$MNT"
+}
+umnt() { mountpoint -q "$MNT" && umount "$MNT"; rmdir "$MNT" 2>/dev/null || true; }
+trap umnt EXIT
+
+case "$1" in
+status)
+	mnt ro
+	echo "flags on HANDOFF partition:"
+	found=0
+	for f in $FLAGS; do [ -e "$MNT/$f" ] && { echo "  $f"; found=1; }; done
+	[ "$found" = 1 ] || echo "  (none: normal mode, boot Ubuntu from NVMe)"
+	for f in /boot/handoff-force-sd /boot/handoff-dry-run; do [ -e "$f" ] && echo "  $f (flag on the rescue root filesystem)"; done
+	if [ -e "$MNT/nvme-retry.txt" ]; then
+		echo "last boot that needed extra care, recorded by U-Boot (nvme-retry.txt):"
+		tr -d '\000' < "$MNT/nvme-retry.txt" | sed 's/^/  /'
+	else
+		echo "no nvme-retry.txt: U-Boot never needed more than one NVMe attempt"
+	fi
+	if [ -e /var/lib/nvme-handoff/recover.log ]; then
+		echo "rescue recovery log (last 10 lines):"
+		tail -n 10 /var/lib/nvme-handoff/recover.log | sed 's/^/  /'
+	fi
+	echo "this boot: $(tr ' ' '\n' < /proc/cmdline | grep -E '^nvme_(handoff|tries|flags)=' | tr '\n' ' ')"
+	;;
+auto)
+	mnt rw
+	for f in $FLAGS; do rm -f "$MNT/$f"; done
+	rm -f /boot/handoff-force-sd /boot/handoff-dry-run 2>/dev/null || true
+	echo "normal mode: next boot goes to Ubuntu on NVMe"
+	;;
+force-sd)
+	mnt rw; : > "$MNT/force-sd"; rm -f "$MNT/try-nvme-once"
+	echo "next boots stay in the SD rescue system (undo: nvme-handoff auto)"
+	;;
+once)
+	mnt rw; : > "$MNT/force-sd"; : > "$MNT/try-nvme-once"
+	echo "next boot tries NVMe once, later boots stay in the SD rescue system"
+	;;
+dry-run)
+	mnt rw; : > "$MNT/dry-run"
+	echo "next boots probe NVMe but start the rescue system (undo: nvme-handoff auto)"
+	;;
+*) usage ;;
+esac
+sync

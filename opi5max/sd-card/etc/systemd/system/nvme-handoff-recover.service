@@ -1,0 +1,11 @@
+[Unit]
+Description=NVMe handoff recovery: clean reboot when U-Boot could not boot the NVMe system
+Documentation=file:/usr/local/share/doc/nvme-handoff/README.txt
+After=local-fs.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/sbin/nvme-handoff-recover
+
+[Install]
+WantedBy=multi-user.target
